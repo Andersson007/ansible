@@ -238,17 +238,56 @@
   postgresql_query:
     login_user: "{{ pg_user }}"
     db: postgres
-    query: UPDATE test_table SET story = 'new' WHERE id = 100
+    query:
+    - UPDATE test_table SET story = 'new' WHERE id = 100
+    - SELECT id FROM test_table WHERE id = 100
   register: result
   ignore_errors: yes
 
 - assert:
     that:
     - result is not changed
-    - result.query == "UPDATE test_table SET story = 'new' WHERE id = 100"
+    - result.query == "SELECT id FROM test_table WHERE id = 100"
     - result.rowcount == 0
-    - result.statusmessage == 'UPDATE 0'
-    - result.query_result == {}
+    - result.statusmessage == 'SELECT 0'
+    - result.query_result == []
+    - result.executed_queries == ["UPDATE test_table SET story = 'new' WHERE id = 100", 'SELECT id FROM test_table WHERE id = 100']
+    - result.statusmessage_by_query == ['UPDATE 0', 'SELECT 0']
+    - result.rowcount_by_query == [0, 0]
+    - result.query_result_by_query == [[]]
+
+- name: postgresql_query - insert test row
+  become_user: "{{ pg_user }}"
+  become: yes
+  postgresql_query:
+    login_user: "{{ pg_user }}"
+    db: postgres
+    query:
+    - INSERT INTO test_table (id, story) VALUES (100, 'new')
+
+- name: postgresql_query - check the prev step
+  become_user: "{{ pg_user }}"
+  become: yes
+  postgresql_query:
+    login_user: "{{ pg_user }}"
+    db: postgres
+    query:
+    - SELECT id FROM test_table WHERE id = 100
+    - SELECT id FROM test_table WHERE id = 100
+    autocommit: yes
+  register: result
+
+- assert:
+    that:
+    - result is not changed
+    - result.executed_queries == ['SELECT id FROM test_table WHERE id = 100', 'SELECT id FROM test_table WHERE id = 100']
+    - result.rowcount == 1
+    - result.rowcount_by_query == [1, 1]
+    - result.statusmessage == 'SELECT 1'
+    - result.statusmessage_by_query == ['SELECT 1', 'SELECT 1']
+    - result.query_result[0].id == 100
+    - result.query_result_by_query[0][0].id == 100
+    - result.query_result_by_query[1][0].id == 100
 
 # Simple insert query positional_args:
 - name: postgresql_query - insert query
@@ -257,7 +296,8 @@
   postgresql_query:
     login_user: "{{ pg_user }}"
     db: postgres
-    query: INSERT INTO test_table (id, story) VALUES (%s, %s)
+    query:
+    - INSERT INTO test_table (id, story) VALUES (%s, %s)
     positional_args:
     - 4
     - fourth

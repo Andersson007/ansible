@@ -28,7 +28,8 @@ options:
   query:
     description:
     - SQL query to run. Variables can be escaped with psycopg2 syntax U(http://initd.org/psycopg/docs/usage.html).
-    type: str
+    - Multiple queries can be passed using YAML list syntax.
+    type: list
   positional_args:
     description:
     - List of values to be passed as positional arguments to the query.
@@ -101,10 +102,12 @@ EXAMPLES = r'''
       id_val: 1
       story_val: test
 
-- name: Insert query to test_table in db test_db
+- name: Run multiple queries against test_table in db test_db
   postgresql_query:
     db: test_db
-    query: INSERT INTO test_table (id, story) VALUES (2, 'my_long_story')
+    query:
+    - INSERT INTO test_table (id, story) VALUES (2, 'my_long_story')
+    - UPDATE test_table SET id = '1' WHERE id = '2'
 
 - name: Run queries from SQL script
   postgresql_query:
@@ -146,26 +149,54 @@ EXAMPLES = r'''
 
 RETURN = r'''
 query:
-    description: Query that was tried to be executed.
+    description: The last executed query.
     returned: always
     type: str
     sample: 'SELECT * FROM bar'
+executed_queries:
+    description: Full list of executed queries.
+    returned: always
+    type: list
+    sample: ['SELECT * FROM bar', 'UPDATE bar SET id = 1 WHERE id = 2']
+    version_added: '2.10'
 statusmessage:
     description: Attribute containing the message returned by the command.
     returned: always
     type: str
     sample: 'INSERT 0 1'
+statusmessage_by_query:
+    description: List of attribute containing the message returned by subqueries.
+    returned: always
+    type: list
+    sample: ['INSERT 0 1', 'UPDATE 5']
+    version_added: '2.10'
 query_result:
     description:
-    - List of dictionaries in column:value form representing returned rows.
+    - List of dictionaries in column:value form representing returned rows
+      by the last executed query.
     returned: changed
     type: list
     sample: [{"Column": "Value1"},{"Column": "Value2"}]
+    version_added: '2.10'
+query_result_by_query:
+    description:
+    - List of lists (sublist for each subquery) containing dictionaries
+      in column:value form representing returned rows.
+    returned: changed
+    type: list
+    sample: [[{"Column": "Value1"},{"Column": "Value2"}], [{"ID": 1}, {"ID": 2}]]
+    version_added: '2.10'
 rowcount:
-    description: Number of affected rows.
+    description: Number of affected rows by the last executed query.
     returned: changed
     type: int
     sample: 5
+rowcount_by_query:
+    description: Number of affected rows for each subquery.
+    returned: changed
+    type: list
+    sample: [5, 1]
+    version_added: '2.10'
 '''
 
 try:
@@ -232,7 +263,7 @@ def convert_elements_to_pg_arrays(obj):
 def main():
     argument_spec = postgres_common_argument_spec()
     argument_spec.update(
-        query=dict(type='str'),
+        query=dict(type='list'),
         db=dict(type='str', aliases=['login_db']),
         positional_args=dict(type='list'),
         named_args=dict(type='dict'),
@@ -248,6 +279,8 @@ def main():
     )
 
     query = module.params["query"]
+    if query is None:
+        query = []
     positional_args = module.params["positional_args"]
     named_args = module.params["named_args"]
     path_to_script = module.params["path_to_script"]
@@ -270,7 +303,7 @@ def main():
 
     if path_to_script:
         try:
-            query = open(path_to_script, 'r').read()
+            query.append(open(path_to_script, 'r').read())
         except Exception as e:
             module.fail_json(msg="Cannot read file '%s' : %s" % (path_to_script, to_native(e)))
 
@@ -288,43 +321,53 @@ def main():
 
     # Set defaults:
     changed = False
+    rowcount_by_query = []
+    statusmessage_by_query = []
+    query_result_by_query = []
+    executed_queries = []
 
-    # Execute query:
-    try:
-        cursor.execute(query, arguments)
-    except Exception as e:
-        cursor.close()
-        db_connection.close()
-        module.fail_json(msg="Cannot execute SQL '%s' %s: %s" % (query, arguments, to_native(e)))
+    # Execute queries:
+    # (``query`` is a list since 2.10)
+    for q in query:
+        try:
+            cursor.execute(q, arguments)
+            executed_queries.append(q)
+        except Exception as e:
+            cursor.close()
+            db_connection.close()
+            module.fail_json(msg="Cannot execute SQL '%s' %s: %s" % (q, arguments, to_native(e)))
 
-    statusmessage = cursor.statusmessage
-    rowcount = cursor.rowcount
+        statusmessage = cursor.statusmessage
+        statusmessage_by_query.append(statusmessage)
+        rowcount = cursor.rowcount
+        rowcount_by_query.append(rowcount)
 
-    try:
-        query_result = [dict(row) for row in cursor.fetchall()]
-    except Psycopg2ProgrammingError as e:
-        if to_native(e) == 'no results to fetch':
-            query_result = {}
+        try:
+            query_result = [dict(row) for row in cursor.fetchall()]
+            query_result_by_query.append(query_result)
+        except Psycopg2ProgrammingError as e:
+            if to_native(e) == 'no results to fetch':
+                query_result = {}
 
-    except Exception as e:
-        module.fail_json(msg="Cannot fetch rows from cursor: %s" % to_native(e))
+        except Exception as e:
+            module.fail_json(msg="Cannot fetch rows from cursor: %s" % to_native(e))
 
-    if 'SELECT' not in statusmessage:
-        if 'UPDATE' in statusmessage or 'INSERT' in statusmessage or 'DELETE' in statusmessage:
-            s = statusmessage.split()
-            if len(s) == 3:
-                if statusmessage.split()[2] != '0':
-                    changed = True
+        if 'SELECT' not in statusmessage:
+            if 'UPDATE' in statusmessage or 'INSERT' in statusmessage or 'DELETE' in statusmessage:
+                s = statusmessage.split()
+                if len(s) == 3:
+                    if statusmessage.split()[2] != '0':
+                        changed = True
 
-            elif len(s) == 2:
-                if statusmessage.split()[1] != '0':
+                elif len(s) == 2:
+                    if statusmessage.split()[1] != '0':
+                        changed = True
+
+                else:
                     changed = True
 
             else:
                 changed = True
-
-        else:
-            changed = True
 
     if module.check_mode:
         db_connection.rollback()
@@ -335,9 +378,13 @@ def main():
     kw = dict(
         changed=changed,
         query=cursor.query,
+        executed_queries=executed_queries,
         statusmessage=statusmessage,
         query_result=query_result,
         rowcount=rowcount if rowcount >= 0 else 0,
+        rowcount_by_query=rowcount_by_query,
+        statusmessage_by_query=statusmessage_by_query,
+        query_result_by_query=query_result_by_query,
     )
 
     cursor.close()
