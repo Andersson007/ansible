@@ -262,8 +262,7 @@
   postgresql_query:
     login_user: "{{ pg_user }}"
     db: postgres
-    query:
-    - INSERT INTO test_table (id, story) VALUES (100, 'new')
+    query: INSERT INTO test_table (id, story) VALUES (100, 'new')
 
 - name: postgresql_query - check the prev step
   become_user: "{{ pg_user }}"

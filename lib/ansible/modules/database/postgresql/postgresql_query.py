@@ -69,6 +69,8 @@ options:
     type: bool
     default: no
     version_added: '2.9'
+notes:
+- To pass a query containing commas, use YAML list notation with hyphen (see EXAMPLES block).
 seealso:
 - module: postgresql_db
 author:
