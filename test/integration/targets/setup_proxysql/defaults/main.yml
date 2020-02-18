@@ -1,0 +1,7 @@
+mariadb_client_pkg: mariadb
+proxysql_rpm_link: https://github.com/sysown/proxysql/releases/download/v2.0.6/proxysql-2.0.6-1-centos7.x86_64.rpm
+proxysql_service: proxysql.service
+proxysql_host: 127.0.0.1
+proxysql_port: 6032
+proxysql_user: admin
+proxysql_pass: admin

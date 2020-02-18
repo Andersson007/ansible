@@ -1,0 +1,5 @@
+# Setup ProxySQL
+- import_tasks: setup_proxysql.yml
+  when:
+    - ansible_distribution == 'CentOS'
+    - ansible_distribution_major_version is version('7', '>=')

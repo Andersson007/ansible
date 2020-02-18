@@ -1,0 +1,5 @@
+- name: Install ProxySQL-related packages
+  yum:
+    pkg:
+    - '{{ mariadb_client_pkg }}'
+    - '{{ proxysql_rpm_link }}'
