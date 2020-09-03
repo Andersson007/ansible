@@ -154,3 +154,5 @@ Individuals who've been asked to become a part of this group have generally been
 +---------------------+----------------------+--------------------+----------------------+
 | Felix Fontein       | felixfontein         | felixfontein       | felix@fontein.de     |
 +---------------------+----------------------+--------------------+----------------------+
+| Andrew Klychkov     | Andersson007         | andersson007_      |                      |
++---------------------+----------------------+--------------------+----------------------+
